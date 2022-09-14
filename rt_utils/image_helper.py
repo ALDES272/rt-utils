@@ -10,7 +10,10 @@ from pydicom.dataset import Dataset
 from pydicom.sequence import Sequence
 
 # from skimage.measure import label
+import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
+
+from skimage import measure
 # import ast
 from collections import Counter
 from rt_utils.utils import ROIData#, SOPClassUID
@@ -53,6 +56,7 @@ def get_contours_coords(roi_data: ROIData, series_data):
     # print("transformation_matrix",transformation_matrix)
     series_contours = []
     for i, series_slice in enumerate(series_data):
+        # print("slice \n",i)
         mask_slice = roi_data.mask[:, :, i]
 
         # Do not add ROI's for blank slices
@@ -68,7 +72,8 @@ def get_contours_coords(roi_data: ROIData, series_data):
         # Get contours from mask
         contours, _ = find_mask_contours(mask_slice, roi_data.approximate_contours)
         validate_contours(contours)
-
+        # print("nb contours ", len(contours))
+        # print("contours\n",contours)
         # Format for DICOM
         formatted_contours = []
         for contour in contours:
@@ -81,8 +86,9 @@ def get_contours_coords(roi_data: ROIData, series_data):
                 contour, transformation_matrix
             )
             dicom_formatted_contour = np.ravel(transformed_contour).tolist()
+            # dicom_formatted_contour = [ round(elem, 2) for elem in dicom_formatted_contour ]
             formatted_contours.append(dicom_formatted_contour)
-            # print("transformed_contour",transformed_contour)
+            # print("formatted_contours",formatted_contours)
         series_contours.append(formatted_contours)
 
     return series_contours
@@ -222,26 +228,59 @@ def MY_check_corner(cc_co1,cc_co2,cc_co3,cc_mask):
 
     return cc_Bool
 
+def MY_contour_simplificator(cs_contour):
+    #simplifies the contour to draw straight lines where necessary
+    if len(cs_contour)>2:
+        out_cs_contour=[cs_contour[0],cs_contour[1]]
+        for cs in range(2,len(cs_contour)):
+            new_candi=cs_contour[cs]
+            old_cand0=cs_contour[cs-2]
+            old_cand1=cs_contour[cs-1]
+            if old_cand0[0]==old_cand1[0] and old_cand0[0]==new_candi[0]:
+                out_cs_contour[-1]=new_candi
+            elif old_cand0[1]==old_cand1[1] and old_cand0[1]==new_candi[1]:
+                out_cs_contour[-1]=new_candi
+            else:out_cs_contour.append(new_candi)
+    return(out_cs_contour)
 
-def find_mask_contours(mask: np.ndarray, approximate_contours: bool):
 
+def MY_contours_initiator(mask,approximate_contours):
+    #this function recreates the contours
+    # plt.imshow(mask)
+    # plt.title("Mask")
+    # plt.show()
     approximation_method = (
         cv.CHAIN_APPROX_SIMPLE if approximate_contours else cv.CHAIN_APPROX_NONE)
     contours, hierarchy = cv.findContours(
         mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
-
+    
+    
+    inverse_mask=1-mask
+    inverse_contours, hinverse_ierarchy = cv.findContours(
+        inverse_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
+    
     init_contours=contours
     contours = list(contours
     )  # Open-CV updated contours to be a tuple so we convert it back into a list here
     
+    
+    init_inverse_contours=inverse_contours
+    inverse_contours = list(inverse_contours
+    )  # Open-CV updated contours to be a tuple so we convert it back into a list here
+    
     for i, contour in enumerate(contours):
         contours[i] = [[pos[0][0], pos[0][1]] for pos in contour]
+    for i, contour in enumerate(inverse_contours):
+        inverse_contours[i] = [[pos[0][0], pos[0][1]] for pos in contour]
+        
+    
     
     hierarchy = hierarchy[0]  # Format extra array out of data
 
     PersonnalizedHier=HierarcHy_Level_Det(hierarchy)
     if approximate_contours ==False :
-        end_contour_list = [[] for i in range(len(contours))]
+        contour_initiato_list = [[] for i in range(len(contours))]
+        masks_contour_intiato_list=[]
         for contour in range(len(contours)) :
 
             if PersonnalizedHier[contour]%2 !=0 :
@@ -250,68 +289,262 @@ def find_mask_contours(mask: np.ndarray, approximate_contours: bool):
                 cv.drawContours(img_contours, init_contours, contour, (1,0,0), 1)
                 unique_contour_mask = ndimage.binary_fill_holes(img_contours).astype(int)
                 unique_contours, u_hierarchy = cv.findContours(unique_contour_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
-
+           
             if PersonnalizedHier[contour]%2 ==0 :
                 #hole structure
                 img_contours = np.zeros(mask.shape)
                 cv.drawContours(img_contours, init_contours, contour, (1,0,0), 1)
+                # plt.imshow(img_contours)
+                # plt.title("img_contours")
+                # plt.show()
+                # plt.imshow(1-img_contours)
+                # plt.title("1-img_contours")
+                # plt.show()
+                
+                # plt.imshow(ndimage.binary_fill_holes(1-img_contours))
+                # plt.title("ndimage.binary_fill_holes(1-img_contours)")
+                # plt.show()
+                # plt.imshow(ndimage.binary_fill_holes(img_contours).astype(int))
+                # plt.title("ndimage.binary_fill_holes(img_contours).astype(int)")
+                # plt.show()
                 unique_contour_mask = ndimage.binary_fill_holes(img_contours).astype(int)-img_contours
+                
+                    
+                # unique_contour_mask = img_contours
+                # unique_contour_mask = ndimage.binary_fill_holes(img_contours).astype(int)#-img_contours
                 unique_contour_mask=unique_contour_mask.astype(int)
                 unique_contours, u_hierarchy = cv.findContours(unique_contour_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
-           
+            # plt.imshow(unique_contour_mask)
+            # plt.title("unique_contour_mask")
+            # plt.show()
 
             unique_contours = list(unique_contours)  
             # Open-CV updated contours to be a tuple so we convert it back into a list here
             
-            for i, contour_ in enumerate(unique_contours):
-                unique_contours[i] = [[pos[0][0], pos[0][1]] for pos in contour_]
+            contour_initiato_list[contour]=unique_contours
+            masks_contour_intiato_list.append(unique_contour_mask)
+        return(contour_initiato_list,hierarchy,masks_contour_intiato_list)
 
-            Intermediate_pair_list=[]
-            for coordonate in range(len(unique_contours[0])) :
-                Currcoordonate=unique_contours[0][coordonate]
-                New_Corner_coordonates=MY_Intermediate_Contours_Generator(Currcoordonate,unique_contour_mask)
-                for fmc_pair in range(len(New_Corner_coordonates)):
-                    if New_Corner_coordonates[fmc_pair] not in Intermediate_pair_list:
-                        Intermediate_pair_list.append(New_Corner_coordonates[fmc_pair])
-            End_List=[Intermediate_pair_list[0][0],Intermediate_pair_list[0][1]]
-           
-            Col0=[elem[0] for elem in Intermediate_pair_list]
-            Col1=[elem[1] for elem in Intermediate_pair_list]
 
-            Col0.pop(0)
-            Col1.pop(0)
-            # UniqValues=Counter(tuple(e) for e in Col0+Col1)
+def new_MY_contours_initiator(mask,approximate_contours):
+    #this function recreates the contours
+    # plt.imshow(mask)
+    # plt.title("Mask")
+    # plt.show()
+    approximation_method = (
+        cv.CHAIN_APPROX_SIMPLE if approximate_contours else cv.CHAIN_APPROX_NONE)
+    contours, hierarchy = cv.findContours(
+        mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
+    
+    
+    inverse_mask=1-mask
+    
+    # plt.imshow(inverse_mask)
+    # plt.title("inverse_mask")
+    # plt.show()
+    
+    inverse_contours, hinverse_ierarchy = cv.findContours(
+        inverse_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
+    
+    init_contours=contours
+    contours = list(contours)  # Open-CV updated contours to be a tuple so we convert it back into a list here
+    
+    
+    init_inverse_contours=inverse_contours
+    inverse_contours = list(inverse_contours)  
+    
+    for i, contour in enumerate(contours):
+        contours[i] = [[pos[0][0], pos[0][1]] for pos in contour]
+    for i, contour in enumerate(inverse_contours):
+        inverse_contours[i] = [[pos[0][0], pos[0][1]] for pos in contour]
+        
+    
+    
+    hierarchy = hierarchy[0]  # Format extra array out of data
+    # print("hierarchy\n",hierarchy)
+    
+    PersonnalizedHier=HierarcHy_Level_Det(hierarchy)
+    # print("PersonnalizedHier\n",PersonnalizedHier)
+    
+    hinverse_ierarchy = hinverse_ierarchy[0]
+    
+    # print("hinverse_ierarchy\n",hinverse_ierarchy)
+    PersonnalizedInverseHier=HierarcHy_Level_Det(hinverse_ierarchy)
+    # print("PersonnalizedInverseHier\n",PersonnalizedInverseHier)
+    
+    
+    if approximate_contours ==False :
+        contour_initiato_list = []
+        masks_contour_intiato_list=[]
+        for contour in range(len(PersonnalizedHier)) :
+            if PersonnalizedHier[contour]%2 !=0 :
+                #not a hole structure
+                img_contours = np.zeros(mask.shape)
+                cv.drawContours(img_contours, init_contours, contour, (1,0,0), 1)
+                unique_contour_mask = ndimage.binary_fill_holes(img_contours).astype(int)
+                unique_contours, u_hierarchy = cv.findContours(unique_contour_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
+                
+                unique_contours = list(unique_contours)  
+                # Open-CV updated contours to be a tuple so we convert it back into a list here
+                
+                contour_initiato_list.append(unique_contours)
+                masks_contour_intiato_list.append(unique_contour_mask)
+        for contour in range(1,len(PersonnalizedInverseHier)) :
+            if PersonnalizedInverseHier[contour]%2 !=0 :
+                #hole structure
+                img_contours = np.zeros(inverse_mask.shape)
+                cv.drawContours(img_contours, init_inverse_contours, contour, (1,0,0), 1)
+                unique_contour_mask = ndimage.binary_fill_holes(img_contours).astype(int)
+                unique_contour_mask=unique_contour_mask.astype(int)
+                unique_contours, u_hierarchy = cv.findContours(unique_contour_mask.astype(np.uint8), cv.RETR_TREE, approximation_method)
+    
+                unique_contours = list(unique_contours)  
+                # Open-CV updated contours to be a tuple so we convert it back into a list here
+                
+                contour_initiato_list.append(unique_contours)
+                masks_contour_intiato_list.append(unique_contour_mask)
+        return(contour_initiato_list,hierarchy,masks_contour_intiato_list)
 
-            while len(Col0) !=0 and len(Col1) !=0 :
-                Candi_Col0=len(Intermediate_pair_list)+1
-                Candi_Col1=len(Intermediate_pair_list)+1
 
-                if (End_List[-1])in Col0 : 
-                    Candi_Col0=Col0.index(End_List[-1])
-                if End_List[-1]in Col1 : 
-                    Candi_Col1=Col1.index(End_List[-1])
-                if Candi_Col0<=Candi_Col1:
+def CornerFinder(contour_CF):
+    outlist=[contour_CF[0]]
+    list_corners=[]
+    for coord in range(1,len(contour_CF)):
+        previousx=outlist[-1][0]
+        previousy=outlist[-1][1]
+        currentx=contour_CF[coord][0]
+        currenty=contour_CF[coord][1]
+        
+        if previousx == currentx or previousy==currenty:
+            outlist.append(contour_CF[coord])
+        else:
+            if previousx.is_integer() and currenty.is_integer():
+                list_corners.append([currentx,previousy])
+                outlist.append([currentx,previousy])
+                outlist.append(contour_CF[coord])
+            elif currentx.is_integer() and previousy.is_integer():
+                list_corners.append([previousx,currenty])
+                outlist.append([previousx,currenty])
+                outlist.append(contour_CF[coord])
+            else : print("!!!Problem no match")
+    return(list_corners)
+
+def find_mask_contours(mask: np.ndarray, approximate_contours: bool):
+    #new version that uses skimage.measure to find contours instead of shitty opencv
+    contours_AD = measure.find_contours(mask)   
+    contours_AD=list(contours_AD)
+    # hierarchy = list([ [ len(contours_AD) ] * len(contours_AD) ] * len(contours_AD))
+    hierarchy = [[ len(contours_AD)  for __ in range(4)] for _ in range(len(contours_AD) )]
+    
+    out_contours=[]
+    for iAD, contour_AD in enumerate(contours_AD):
+        contours_AD[iAD] = [[pos[1], pos[0]] for pos in contour_AD]
+        
+    for iAD in range(len(contours_AD)):
+        NewList=CornerFinder(contours_AD[iAD])
+        out_contours.append(NewList)
+    # print("out_contours",out_contours)
+    # print("hierarchy",hierarchy)
+    return(out_contours,hierarchy)
+    
+def old_1_find_mask_contours(mask: np.ndarray, approximate_contours: bool):
+    contour_initiato_list,hierarchy,masks_contour_intiato_list=new_MY_contours_initiator(mask,approximate_contours)     
+    # print("contour_initiato_list",contour_initiato_list)
+    end_contour_list = [[] for i in range(len(contour_initiato_list))]
+    for contour in range(len(contour_initiato_list)):
+        unique_contours=contour_initiato_list[contour]
+        unique_contour_mask=masks_contour_intiato_list[contour]
+        # plt.imshow(unique_contour_mask)
+        # plt.title("unique_contour_mask")
+        # plt.show()
+        for i, contour_ in enumerate(unique_contours):
+            unique_contours[i] = [[pos[0][0], pos[0][1]] for pos in contour_]
+
+        #assigns corner values :
+        Intermediate_pair_list=[]
+        for coordonate in range(len(unique_contours[0])) :
+            Currcoordonate=unique_contours[0][coordonate]
+            New_Corner_coordonates=MY_Intermediate_Contours_Generator(Currcoordonate,unique_contour_mask)
+            for fmc_pair in range(len(New_Corner_coordonates)):
+                if New_Corner_coordonates[fmc_pair] not in Intermediate_pair_list:
+                    Intermediate_pair_list.append(New_Corner_coordonates[fmc_pair])
+        End_List=[Intermediate_pair_list[0][0],Intermediate_pair_list[0][1]]
+       
+        Col0=[elem[0] for elem in Intermediate_pair_list]
+        Col1=[elem[1] for elem in Intermediate_pair_list]
+
+        Col0.pop(0)
+        Col1.pop(0)
+        
+        # UniqValues=Counter(tuple(e) for e in Col0+Col1)
+        
+        # print("Col0 - length :{}\n".format(len(Col0)),Col0)
+        # print("Col1 - length :{}\n".format(len(Col1)),Col1)
+        # print("End_List\n",End_List)
+        while len(Col0) !=0 and len(Col1) !=0 :
+            Candi_Col0=len(Intermediate_pair_list)+1
+            Candi_Col1=len(Intermediate_pair_list)+1
+            
+            if (End_List[-1])in Col0 : 
+                Candi_Col0=Col0.index(End_List[-1])
+            if End_List[-1]in Col1 : 
+                Candi_Col1=Col1.index(End_List[-1])
+            if End_List[-1] not in Col1 and End_List[-1] not in Col0:
+                print("End_List[-1] not in Col1 and End_List[-1] not in Col0")
+                print("End_List[-1]",End_List[-1] )
+            if Candi_Col0<=Candi_Col1:
+                try:
                     Candi_Col_Index=Candi_Col0
                     Candi_Coordonate=Col1[Candi_Col_Index]
-                else :
+                except IndexError:
+                   
+                    plt.imshow(unique_contour_mask)
+                    plt.title("Error image")
+                    plt.savefig('Error_image.pdf',dpi=300)
+                    plt.show()
+                  
+                    print("Candi_Col0",Candi_Col0)
+                    print("Candi_Col1",Candi_Col1)
+                    print("End_List ",End_List )
+                    print("Col0\n",Col0)
+                    print("Col1\n",Col1)
+                    print("Candi_Col_Index\n",Candi_Col_Index)
+            else :
+                try:
                     Candi_Col_Index=Candi_Col1
                     Candi_Coordonate=Col0[Candi_Col_Index]
-                UniqValuesRemaining=Counter(tuple(e) for e in Col0+Col1)
-                CHECKCORNER =True
-                if UniqValuesRemaining[(End_List[-1][0], End_List[-1][1])] >1 :
-                     CHECKCORNER=MY_check_corner(End_List[-2],End_List[-1],Candi_Coordonate,unique_contour_mask)
-                if CHECKCORNER ==False :
-                    #reassigns the candidates later in the list
-                    Col1.append(Col1[Candi_Col_Index])
-                    Col0.append(Col0[Candi_Col_Index])
-                    Col1.pop(Candi_Col_Index)
-                    Col0.pop(Candi_Col_Index)
-                else :
-                    End_List.append(Candi_Coordonate)
-                    Col0.pop(Candi_Col_Index)
-                    Col1.pop(Candi_Col_Index)
-            end_contour_list[contour]=End_List[:-1]
-
+                except IndexError:
+                    
+                    plt.imshow(unique_contour_mask)
+                    plt.title("Error image")
+                    plt.savefig('Error_image.pdf',dpi=300)
+                    plt.show()
+                    
+                    print("Candi_Col0",Candi_Col0)
+                    print("Candi_Col1",Candi_Col1)
+                    print("End_List ",End_List )
+                    print("Col0\n",Col0)
+                    print("Col1\n",Col1)
+                    print("Candi_Col_Index\n",Candi_Col_Index)
+            UniqValuesRemaining=Counter(tuple(e) for e in Col0+Col1)
+            CHECKCORNER =True
+            if UniqValuesRemaining[(End_List[-1][0], End_List[-1][1])] >1 :
+                 CHECKCORNER=MY_check_corner(End_List[-2],End_List[-1],Candi_Coordonate,unique_contour_mask)
+            if CHECKCORNER ==False :
+                #reassigns the candidates later in the list
+                Col1.append(Col1[Candi_Col_Index])
+                Col0.append(Col0[Candi_Col_Index])
+                Col1.pop(Candi_Col_Index)
+                Col0.pop(Candi_Col_Index)
+            else :
+                End_List.append(Candi_Coordonate)
+                Col0.pop(Candi_Col_Index)
+                Col1.pop(Candi_Col_Index)
+        end_contour_list[contour]=End_List[:-1]
+        # print("end_contour_list[contour] before simplification\n",end_contour_list[contour])
+        end_contour_list[contour]=MY_contour_simplificator(end_contour_list[contour])
+        print("end_contour_list[contour] after simplification\n",end_contour_list[contour])
+        print("end_contour_list",end_contour_list)
     return end_contour_list, hierarchy
 
 
@@ -369,29 +602,38 @@ def create_pin_hole_mask(mask: np.ndarray, approximate_contours: bool):
     """
 
     contours, hierarchy = find_mask_contours(mask, approximate_contours)
+    print("contours\n",contours)
+    print("hierarchy\n",hierarchy)
     pin_hole_mask = mask.copy()
 
     # Iterate through the hierarchy, for child nodes, draw a line upwards from the first point
     for i, array in enumerate(hierarchy):
         parent_contour_index = array[Hierarchy.parent_node]
+        print("parent_contour_index\n",parent_contour_index)
         if parent_contour_index == -1:
             continue  # Contour is not a child
 
         child_contour = contours[i]
+        print("child_contour\n",child_contour)
 
         line_start = tuple(child_contour[0])
+        print("line_start\n",line_start)
 
         pin_hole_mask = draw_line_upwards_from_point(
             pin_hole_mask, line_start, fill_value=0
         )
+        
+        print("pin_hole_mask\n",pin_hole_mask)
     return pin_hole_mask
 
 
 def draw_line_upwards_from_point(
     mask: np.ndarray, start, fill_value: int
 ) -> np.ndarray:
-    line_width = 2
+    line_width = 1 #pas bien compris l'impact de ce truc mais avant a 2
     end = (start[0], start[1] - 1)
+    print("end",end)
+    print("fill_value",fill_value)
     mask = mask.astype(np.uint8)  # Type that OpenCV expects
     # Draw one point at a time until we hit a point that already has the desired value
     while mask[end] != fill_value:

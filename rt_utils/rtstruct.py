@@ -2,7 +2,7 @@ from typing import List, Union
 
 import numpy as np
 from pydicom.dataset import FileDataset
-
+import matplotlib.pyplot as plt
 from rt_utils.utils import ROIData
 from . import ds_helper, image_helper
 
@@ -69,6 +69,11 @@ class RTStruct:
         )
 
     def validate_mask(self, mask: np.ndarray) -> bool:
+        # for wow in range(len(mask)):
+        #     plt.imshow(mask[wow])
+        #     plt.title("validate_mask in rtstruct {}".format(wow))
+        #     plt.show()
+        
         if mask.dtype != bool:
             raise RTStruct.ROIException(
                 f"Mask data type must be boolean. Got {mask.dtype}"
